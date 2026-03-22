@@ -128,7 +128,7 @@ class SparkDataCheck:
                 for c in num_cols:
                     #create one df per then combine into dfs
                     dfc = self.df.groupby(group).agg(F.min(c), F.max(c)).toPandas()                  
-                    dfc = df.rename(columns{f'{min({c})':''min', f'max{c})':'max'})
+                    dfc = df.rename(columns(f'{min({c})':''min', f'max{c})':'max'})
                     dfc['col_name']=c
                     dfs.append(dfc)
                                             
