@@ -4,163 +4,175 @@ from functools import reduce
 from pyspark.sql.types import *
 import pandas as pd
 
-
 class SparkDataCheck:
-
+    # initializing 
     def __init__(self, df):
         self.df = df
 
     @classmethod
-    def from_csv(cls, filepath, spark_session):
-        df = spark_session.read.load(filepath, format="csv", header=True, inferSchema=True)
+    # this will read in a csv file while creating an instance SparkDataCheck
+    def from_csv(cls, spark_session, filepath):
+        df = spark_session.read.load(filepath,
+                             format="csv",
+                             sep=",", 
+                             inferSchema="true",
+                             header="true")
         return cls(df)
-
+    
     @classmethod
-    def from_pandas(cls, pandas_df, spark_session):
+    # this will create an instance of SparkDataCheck from a pandas dataframe
+    def from_pd(cls, spark_session, pandas_df):
         df = spark_session.createDataFrame(pandas_df)
         return cls(df)
-
-    def check_null(self, column):
-        null_flag = F.col(f'`{column}`').isNull()
-        result = self.df.withColumn('null_flag', null_flag)
-        return result
-
+    
+    #----VALIDATION METHODS ----
+    
+    # this METHOD will check if each value in a numeric column is within user defined limits
+    #  and append a column of Boolean values.
     def check_col_range(self, column, lower=None, upper=None):
-        dtype = dict(self.df.dtypes)[column]
-        numeric_types = ['int', 'bigint', 'float', 'double', 'decimal', 'long', 'short']
-        is_numeric = any(dtype.startswith(t) for t in numeric_types)
-
-        if not is_numeric:
-            print(f"Column '{column}' is not numeric.")
+        # check for at least one upper/lower value
+        if (lower is None) and (upper is None):
+            print(f'Need a lower and/or an upper range for {column}')
             return self
-
-        col_ref = F.col(f'`{column}`')
-
-        if lower is not None and upper is not None:
-            range_flag = ~col_ref.between(lower, upper)
-        elif lower is not None:
-            range_flag = col_ref < lower
-        elif upper is not None:
-            range_flag = col_ref > upper
+              
+        #including all num types for dtype check
+        num_types = ['float', 'int', 'longint', 'bigint', 'double', 'integer']
+                   
+        #check for dtype as number
+        if dict(self.df.dtypes)[column] not in num_types:
+            print("Column is not numeric")
+            return self
+                   
+        #do the comparison and append column with the result
+        if lower is None:
+            self.df = self.df.withColumn('num_check', F.col(f'`{column}`') <= upper)
+        elif upper is None:
+            self.df = self.df.withColumn('num_check', F.col(f'`{column}`') >= lower)
         else:
-            range_flag = F.lit(False)
-
-        result = self.df.withColumn('range_flag', range_flag)
-        return result
-
-    def check_col_string(self, column, levels):
-        dtype = dict(self.df.dtypes)[column]
-
-        if dtype != 'string':
-            print(f"Column '{column}' is not a string column.")
+            self.df = self.df.withColumn('num_check', F.col(f'`{column}`').between(lower, upper))  
+        return self
+    
+    # this METHOD will check a string column for values and append a boolean column
+    def check_string(self, column, levels):
+        # check for string type
+        if dict(self.df.dtypes)[column] != 'string':
+            print("Column is not a string")
             return self
 
-        col_ref = F.col(f'`{column}`')
-        string_flag = ~col_ref.isin(levels)
-        result = self.df.withColumn('string_flag', string_flag)
-        return result
-
-    def col_minmax(self, column=None, group_by=None):
-        numeric_types = ['int', 'bigint', 'float', 'double', 'decimal', 'long', 'short']
-        dtypes_dict = dict(self.df.dtypes)
-
-        def is_numeric(col_name):
-            return any(dtypes_dict[col_name].startswith(t) for t in numeric_types)
-
-        # Single column supplied
+        # do the comparison to levels (NULL is built in)
+        self.df = self.df.withColumn('str_check', F.col(f'`{column}`').isin(levels))
+        return self
+    
+    # this METHOD will check for NULL values and append a column
+    def check_null(self, column):
+        #check for NULL value
+        self.df = self.df.withColumn('null_check', F.col(f'`{column}`').isNull())
+        return self
+    
+    #----- SUMMARIZATION METHODS----- 
+    
+    #This METHOD will report the min and max of a numeric column supplied 
+    # by the user with and optional grouping variable
+    def col_minmax(self, column=None, group=None):
+        #including all num types for dtype check
+        num_types = ['float', 'int', 'longint', 'bigint', 'double', 'integer']
+        
         if column is not None:
-            if not is_numeric(column):
-                print(f"Column '{column}' is not numeric.")
+            #check for dtype as number
+            if dict(self.df.dtypes)[column] not in num_types:
+                print(f"Column {column} is not numeric")
                 return None
-
-            col_ref = F.col(f'`{column}`')
-
-            if group_by is not None:
-                result = (self.df
-                          .groupBy(group_by)
-                          .agg(F.min(col_ref).alias('min'),
-                               F.max(col_ref).alias('max')))
-                result_pd = result.toPandas()
-                result_pd.insert(0, 'col_name', column)
+               
+            if group is None:
+                result = self.df.agg(F.min(F.col(f'`{column}`')), F.max(F.col(f'`{column}`'))).toPandas()
+                result.insert(0, 'col_name', column)
+                result.columns = ['col_name', 'min', 'max']
+                return result
             else:
-                result = self.df.agg(F.min(col_ref).alias('min'),
-                                     F.max(col_ref).alias('max'))
-                result_pd = result.toPandas()
-                result_pd.insert(0, 'col_name', column)
-
-            return result_pd
-
-        # No column supplied — all numeric columns
+                # column and group present
+                result = (self.df.groupBy(group)
+                          .agg(F.min(F.col(f'`{column}`')),
+                               F.max(F.col(f'`{column}`')))).toPandas()
+                result.insert(0, 'col_name', column)
+                result.columns = ['col_name', group, 'min', 'max']
+                return result
+                
+        # no column supplied so min/max for all numeric
         else:
-            numeric_cols = [c for c in self.df.columns if is_numeric(c)]
-
-            if group_by is not None:
-                dfs = []
-                for c in numeric_cols:
-                    col_ref = F.col(f'`{c}`')
-                    temp = (self.df
-                            .groupBy(group_by)
-                            .agg(F.min(col_ref).alias('min'),
-                                 F.max(col_ref).alias('max')))
-                    temp_pd = temp.toPandas()
-                    temp_pd.insert(0, 'col_name', c)
-                    dfs.append(temp_pd)
-                result_pd = reduce(lambda left, right: pd.merge(left, right, how='outer'), dfs)
+            num_cols = []
+                      
+            # make a list of numeric columns 
+            for c, t in self.df.dtypes:
+                if t in num_types:
+                    num_cols.append(c)
+                       
+            if group is None:
+                # build list of min and max
+                agg_exprs = []
+                for c in num_cols:
+                    agg_exprs.append(F.min(F.col(f'`{c}`')))
+                    agg_exprs.append(F.max(F.col(f'`{c}`')))
+                result = self.df.agg(*agg_exprs).toPandas()
+    
+                # reshape into a row per column
+                rows = []
+                for c in num_cols:
+                    row = {'col_name': c, 
+                           'min': result[f'min({c})'].iloc[0], 
+                           'max': result[f'max({c})'].iloc[0]}
+                    rows.append(row)
+                return pd.DataFrame(rows)
+            
+            # if group but no column
             else:
                 dfs = []
-                for c in numeric_cols:
-                    col_ref = F.col(f'`{c}`')
-                    temp = self.df.agg(F.min(col_ref).alias('min'),
-                                       F.max(col_ref).alias('max'))
-                    temp_pd = temp.toPandas()
-                    temp_pd.insert(0, 'col_name', c)
-                    dfs.append(temp_pd)
-                result_pd = pd.concat(dfs, ignore_index=True)
+                
+                for c in num_cols:
+                    # create one df per column then combine
+                    dfc = (self.df.groupBy(group)
+                           .agg(F.min(F.col(f'`{c}`')).alias('min'),
+                                F.max(F.col(f'`{c}`')).alias('max'))
+                           .toPandas())
+                    dfc['col_name'] = c
+                    dfs.append(dfc)
+                                            
+                # combine into one dataframe
+                result = pd.concat(dfs, ignore_index=True)
+                return result
+        
+    # This METHOD will report the counts associated with one or two string columns
+    def str_count(self, col1, col2=None):
+        #initialize strings to false
+        col1_string = False
+        col2_string = False
 
-            return result_pd
-
-    def str_count(self, column1, column2=None):
-        dtypes_dict = dict(self.df.dtypes)
-
-        col1_valid = False
-        col2_valid = False
-
-        # Check column1
-        if dtypes_dict.get(column1) == 'string':
-            col1_valid = True
+        # check col1 is type string
+        if dict(self.df.dtypes)[col1] != 'string':
+            print(f"Column {col1} is numeric")
         else:
-            print(f"Column '{column1}' is not a string column.")
-
-        # Check column2 if supplied
-        if column2 is not None:
-            if dtypes_dict.get(column2) == 'string':
-                col2_valid = True
+            col1_string = True
+            
+        #check col 2 
+        if col2 is not None:
+            if dict(self.df.dtypes)[col2] != 'string':
+                print(f"Column {col2} is numeric")
             else:
-                print(f"Column '{column2}' is not a string column.")
-
-        # If both invalid, return None
-        if not col1_valid and (column2 is None or not col2_valid):
+                col2_string = True
+        
+        #both fail
+        if not col1_string and not col2_string:
             return None
+        
+        #only column 1 passes
+        if col2 is None or not col2_string:
+            if col1_string:
+                result = self.df.groupBy(col1).count().toPandas()
+                return result
+        #only column 2 passes
+        if not col1_string:
+            result = self.df.groupBy(col2).count().toPandas()
+            return result
 
-        results = []
-
-        if col1_valid:
-            count1 = (self.df
-                      .groupBy(F.col(f'`{column1}`'))
-                      .count()
-                      .toPandas())
-            count1.columns = [column1, 'count']
-            results.append(count1)
-
-        if column2 is not None and col2_valid:
-            count2 = (self.df
-                      .groupBy(F.col(f'`{column2}`'))
-                      .count()
-                      .toPandas())
-            count2.columns = [column2, 'count']
-            results.append(count2)
-
-        if len(results) == 1:
-            return results[0]
-        else:
-            return results
+        #both are strings if you made it here
+        result = self.df.groupBy(col1, col2).count().toPandas()
+        return result
