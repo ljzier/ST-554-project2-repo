@@ -32,7 +32,7 @@ class SparkDataCheck:
     def check_col_range(self, column, lower=None, upper=None):
         # check for at least one upper/lower value
         if (lower is None) and (upper is None):
-            print(f'Need a lower and/or an upper range for {column}')
+            print(f'Need a lower and/or an upper range for {column}!!!')
             return self
               
         #including all num types for dtype check
@@ -40,7 +40,7 @@ class SparkDataCheck:
                    
         #check for dtype as number
         if dict(self.df.dtypes)[column] not in num_types:
-            print("Column is not numeric")
+            print("Column is not numeric!")
             return self
                    
         #do the comparison and append column with the result
@@ -56,7 +56,7 @@ class SparkDataCheck:
     def check_string(self, column, levels):
         # check for string type
         if dict(self.df.dtypes)[column] != 'string':
-            print("Column is not a string")
+            print("Column is not a string!")
             return self
 
         # do the comparison to levels (NULL is built in)
@@ -80,7 +80,7 @@ class SparkDataCheck:
         if column is not None:
             #check for dtype as number
             if dict(self.df.dtypes)[column] not in num_types:
-                print(f"Column {column} is not numeric")
+                print(f"Column {column} is not numeric!")
                 return None
                
             if group is None:
@@ -148,14 +148,14 @@ class SparkDataCheck:
 
         # check col1 is type string
         if dict(self.df.dtypes)[col1] != 'string':
-            print(f"Column {col1} is numeric")
+            print(f"Column {col1} is numeric! Need a string.")
         else:
             col1_string = True
             
         #check col 2 
         if col2 is not None:
             if dict(self.df.dtypes)[col2] != 'string':
-                print(f"Column {col2} is numeric")
+                print(f"Column {col2} is numeric! Need a string.")
             else:
                 col2_string = True
         
