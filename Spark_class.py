@@ -4,6 +4,7 @@ from functools import reduce
 from pyspark.sql.types import *
 import pandas as pd
 
+# This class will be used for data checking
 class SparkDataCheck:
     # initializing 
     def __init__(self, df):
